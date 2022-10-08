@@ -20,14 +20,13 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
-import android.hardware.camera2.CameraMetadata;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.SystemClock;
@@ -51,9 +50,12 @@ import androidx.fragment.app.Fragment;
 
 import java.io.File;
 import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -63,14 +65,16 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
     private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
 
     private static final String TAG = "HSVFragment";
-    private static final int REQUEST_VIDEO_PERMISSIONS = 1;
-    private static final String FRAGMENT_DIALOG = "dialog";
+    static final int REQUEST_VIDEO_PERMISSIONS = 1;
+    static final String FRAGMENT_DIALOG = "dialog";
 
-    private static final String[] VIDEO_PERMISSIONS = {
+    static final String[] VIDEO_PERMISSIONS = {
             Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
             Manifest.permission.WRITE_EXTERNAL_STORAGE
     };
+
+    protected static CameraInfo config;
 
     static {
         ORIENTATIONS.append(Surface.ROTATION_0, 90);
@@ -100,7 +104,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
      * A reference to the current {@link CameraCaptureSession} for
      * preview.
      */
-    private CameraConstrainedHighSpeedCaptureSession mPreviewSessionHighSpeed;
+    private CameraCaptureSession mPreviewSessionHighSpeed;
 
 
     /**
@@ -119,7 +123,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         @Override
         public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture,
                                                 int width, int height) {
-            startPreview();
+            // startPreview();
         }
 
         @Override
@@ -190,6 +194,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
 
         @Override
         public void onDisconnected(@NonNull CameraDevice cameraDevice) {
+            Logger.e("");
             mCameraOpenCloseLock.release();
             cameraDevice.close();
             mCameraDevice = null;
@@ -197,6 +202,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
 
         @Override
         public void onError(@NonNull CameraDevice cameraDevice, int error) {
+            Logger.e(error);
             mCameraOpenCloseLock.release();
             cameraDevice.close();
             mCameraDevice = null;
@@ -207,6 +213,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         }
 
     };
+    private String cameraId;
 
     public static CaptureHighSpeedVideoModeFragment newInstance() {
         return new CaptureHighSpeedVideoModeFragment();
@@ -246,6 +253,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
             stopRecordingVideo();
         }
         closeCamera();
+        deleteEmptyFIle(mNextVideoFilePath);
         stopBackgroundThread();
         super.onPause();
     }
@@ -371,12 +379,15 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
             if (!mCameraOpenCloseLock.tryAcquire(2500, TimeUnit.MILLISECONDS)) {
                 throw new RuntimeException("Time out waiting to lock camera opening.");
             }
-            String cameraId = Objects.requireNonNull(manager).getCameraIdList()[0];
+
+            cameraId = Objects.requireNonNull(manager).getCameraIdList()[0];
+            if (config != null) {
+                cameraId = config.getCameraId();
+            }
 
             CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
 
-            StreamConfigurationMap map = characteristics
-                    .get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
+            StreamConfigurationMap map = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 
             if (map == null) {
                 ErrorDialog.newInstance(getString(R.string.open_failed_of_map_null))
@@ -390,11 +401,34 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
                 if (fpsRange.getLower().equals(fpsRange.getUpper())) {
                     for (android.util.Size size : map.getHighSpeedVideoSizesFor(fpsRange)) {
                         Size videoSize = new Size(size.getWidth(), size.getHeight());
-                        if (videoSize.hasHighSpeedCamcorder(CameraMetadata.LENS_FACING_FRONT)) {
+                        //if (videoSize.hasHighSpeedCamcorder(Integer.parseInt(cameraId))) {
                             videoSize.setFps(fpsRange.getUpper());
-                            Log.d(TAG, "Support HighSpeed video recording for " + videoSize.toString());
+                            Logger.d(TAG, "Support HighSpeed video recording add :" + videoSize);
                             highSpeedSizes.add(videoSize);
-                        }
+                       // }
+                    }
+                }
+            }
+
+            for (android.util.Size size : map.getHighSpeedVideoSizes()) {
+                boolean isSupport = false;
+                if (size.getWidth() == 720 && size.getHeight() == 480) {
+                    isSupport = CamcorderProfile.hasProfile(Integer.parseInt(cameraId), CamcorderProfile.QUALITY_HIGH_SPEED_480P);
+                } else if (size.getWidth() == 1280 && size.getHeight() == 720) {
+                    isSupport = CamcorderProfile.hasProfile(Integer.parseInt(cameraId), CamcorderProfile.QUALITY_HIGH_SPEED_720P);
+                } else if (size.getWidth() == 1920 && (size.getHeight() == 1080 || size.getHeight() == 1088)) {
+                    isSupport = CamcorderProfile.hasProfile(Integer.parseInt(cameraId), CamcorderProfile.QUALITY_HIGH_SPEED_1080P);
+                } else if (size.getWidth() == 3840 && size.getHeight() == 2160) {
+                    //2160p (3840 x 2160)
+                    isSupport = CamcorderProfile.hasProfile(Integer.parseInt(cameraId), CamcorderProfile.QUALITY_HIGH_SPEED_2160P);
+                } else if (size.getWidth() == 4096 && size.getHeight() == 2160) {
+                    isSupport = CamcorderProfile.hasProfile(Integer.parseInt(cameraId), CamcorderProfile.QUALITY_HIGH_SPEED_4KDCI);
+                }
+                Logger.w(TAG, size+",isSupport:" + isSupport);
+                Range<Integer>[] ranges = map.getHighSpeedVideoFpsRangesFor(size);
+                if (ranges != null && ranges.length > 0) {
+                    for (Range<Integer> range : ranges) {
+                        Logger.w(TAG, "range:" + range.toString() + ",size:" + size);
                     }
                 }
             }
@@ -406,8 +440,22 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
             }
 
             Collections.sort(highSpeedSizes);
+
+            StringBuilder hsBuilder = new StringBuilder();
+            for (Size size : highSpeedSizes) {
+                hsBuilder.append(size).append(",");
+            }
+            Logger.w(TAG, "highSpeed  support size and fps:" + hsBuilder);
+
             mVideoSize = highSpeedSizes.get(highSpeedSizes.size() - 1);
+//            mVideoSize = highSpeedSizes.get(8);
+            if (config != null) {
+                mVideoSize = config.getFpsSize();
+            }
+
             mPreviewSize = mVideoSize;
+
+            Logger.d(TAG,"selected:" + mVideoSize);
 
             mInfo.setText(getString(R.string.video_info, mVideoSize.getWidth(), mVideoSize.getHeight(), mVideoSize.getFps()));
 
@@ -445,7 +493,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
     }
 
     private void closeCamera() {
-        deleteEmptyFIle(mNextVideoFilePath);
+
         try {
             mCameraOpenCloseLock.acquire();
             if (null != mCameraDevice) {
@@ -490,12 +538,11 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
             surfaces.add(mMediaRecorder.getSurface());
             mPreviewBuilder.addTarget(mMediaRecorder.getSurface());
 
-
-            mCameraDevice.createConstrainedHighSpeedCaptureSession(surfaces, new CameraCaptureSession.StateCallback() {
+            CameraCaptureSession.StateCallback stateCallback = new CameraCaptureSession.StateCallback() {
 
                 @Override
                 public void onConfigured(@NonNull CameraCaptureSession cameraCaptureSession) {
-                    mPreviewSessionHighSpeed = (CameraConstrainedHighSpeedCaptureSession) cameraCaptureSession;
+                    mPreviewSessionHighSpeed = cameraCaptureSession;
                     updatePreview();
                 }
 
@@ -506,7 +553,16 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
                         Toast.makeText(activity, "Failed", Toast.LENGTH_SHORT).show();
                     }
                 }
-            }, mBackgroundHandler);
+            };
+
+            if (HSConfig.ENABLE) {
+                Logger.d(mTextureView.getWidth() + "x" + mTextureView.getHeight());
+
+                mCameraDevice.createConstrainedHighSpeedCaptureSession(surfaces, stateCallback, mBackgroundHandler);
+            } else {
+                mCameraDevice.createCaptureSession(surfaces, stateCallback, mBackgroundHandler);
+            }
+            Logger.d("createConstrainedHighSpeedCaptureSession");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -526,9 +582,14 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
 
 
             setUpCaptureRequestBuilder(mPreviewBuilder);
-            List<CaptureRequest> mPreviewBuilderBurst = mPreviewSessionHighSpeed.createHighSpeedRequestList(mPreviewBuilder.build());
-            mPreviewSessionHighSpeed.setRepeatingBurst(mPreviewBuilderBurst, null, mBackgroundHandler);
 
+            if (HSConfig.ENABLE) {
+                List<CaptureRequest> mPreviewBuilderBurst = ((CameraConstrainedHighSpeedCaptureSession) mPreviewSessionHighSpeed)
+                        .createHighSpeedRequestList(mPreviewBuilder.build());
+                mPreviewSessionHighSpeed.setRepeatingBurst(mPreviewBuilderBurst, null, mBackgroundHandler);
+            } else {
+                mPreviewSessionHighSpeed.setRepeatingRequest(mPreviewBuilder.build(), null, mBackgroundHandler);
+            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -569,7 +630,8 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
             matrix.postScale(scale, scale, centerX, centerY);
             matrix.postRotate(90 * (rotation - 2), centerX, centerY);
         }
-        mTextureView.setTransform(matrix);
+//        mTextureView.setTransform(matrix);
+        Logger.d();
     }
 
     //    private MediaFormat mMediaFormat;
@@ -588,6 +650,9 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
 
         int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
         int orientation = ORIENTATIONS.get(rotation);
+        if (config != null && "1".equals(config.getCameraId())) {
+            orientation += 180;
+        }
         mMediaRecorder.setOrientationHint(orientation);
         mMediaRecorder.prepare();
     }
@@ -598,15 +663,14 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
      * @return path + filename
      */
     private String getVideoFile() {
-
-        final File dcimFile = Environment.getExternalStoragePublicDirectory(
-                Environment.DIRECTORY_DCIM);
-        final File camera2VideoImage = new File(dcimFile, "HighSpeedVideo");
-        if (!camera2VideoImage.exists()) {
-            camera2VideoImage.mkdirs();
+        File dirFile = requireActivity().getExternalFilesDir(null);
+        dirFile = new File("sdcard/hs");
+        if (!dirFile.exists()) {
+            dirFile.mkdirs();
         }
-        return camera2VideoImage.getAbsolutePath() + "/HIGH_SPEED_VIDEO_" + System.currentTimeMillis()
-                + ".mp4";
+        String date = new SimpleDateFormat("yyMMdd_HHmmss", Locale.CHINA).format(new Date());
+        String sizeFps = "" + mVideoSize.getWidth() + "x" + mVideoSize.getHeight() + "_" + mVideoSize.getFps();
+        return dirFile.getPath() + "/" + Build.DEVICE + "_HS_" + date + "_" + sizeFps + ".mp4";
     }
 
     /**
@@ -641,9 +705,9 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         Activity activity = getActivity();
         if (null != activity) {
             Toast.makeText(activity, "Video saved: " + mNextVideoFilePath,
-                    Toast.LENGTH_SHORT).show();
+                    Toast.LENGTH_LONG).show();
         }
-        Log.e(TAG, "stopRecordingVideo: [saved] = " + mNextVideoFilePath);
+        Logger.w(TAG, "[saved] = " + mNextVideoFilePath);
 
         addToMediaStore();
     }
