@@ -6,5 +6,5 @@ package cn.zhengshang.highspeedvideodemo
  * @date 2022/8/22 16:01
  */
 object HSConfig {
-    const val ENABLE = false
+    const val ENABLE = true
 }

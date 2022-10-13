@@ -123,7 +123,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         @Override
         public void onSurfaceTextureSizeChanged(SurfaceTexture surfaceTexture,
                                                 int width, int height) {
-            // startPreview();
+             startPreview();
         }
 
         @Override
@@ -185,7 +185,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         @Override
         public void onOpened(@NonNull CameraDevice cameraDevice) {
             mCameraDevice = cameraDevice;
-            startPreview();
+//            startPreview();
             mCameraOpenCloseLock.release();
             if (null != mTextureView) {
                 configureTransform(mTextureView.getWidth(), mTextureView.getHeight());
@@ -557,7 +557,6 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
 
             if (HSConfig.ENABLE) {
                 Logger.d(mTextureView.getWidth() + "x" + mTextureView.getHeight());
-
                 mCameraDevice.createConstrainedHighSpeedCaptureSession(surfaces, stateCallback, mBackgroundHandler);
             } else {
                 mCameraDevice.createCaptureSession(surfaces, stateCallback, mBackgroundHandler);
@@ -630,8 +629,8 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
             matrix.postScale(scale, scale, centerX, centerY);
             matrix.postRotate(90 * (rotation - 2), centerX, centerY);
         }
-//        mTextureView.setTransform(matrix);
-        Logger.d();
+        mTextureView.setTransform(matrix);
+        Logger.d(viewWidth + "," + viewHeight);
     }
 
     //    private MediaFormat mMediaFormat;
@@ -645,6 +644,7 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setProfile(profile);
+
         mNextVideoFilePath = getVideoFile();
         mMediaRecorder.setOutputFile(mNextVideoFilePath);
 
