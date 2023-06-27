@@ -644,9 +644,17 @@ public class CaptureHighSpeedVideoModeFragment extends Fragment
         mMediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         mMediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
         mMediaRecorder.setProfile(profile);
-
+        boolean isHfr = true;
+        if (isHfr) {
+            mMediaRecorder.setCaptureRate(mVideoSize.getFps());
+            mMediaRecorder.setVideoFrameRate(30);
+            int bt = (int) (mVideoSize.getWidth() * mVideoSize.getHeight() * 30 * 0.1F);
+            mMediaRecorder.setVideoEncodingBitRate(bt);
+            Logger.d("setUpMediaRecorder," + bt / 1024);
+        }
         mNextVideoFilePath = getVideoFile();
         mMediaRecorder.setOutputFile(mNextVideoFilePath);
+
 
         int rotation = activity.getWindowManager().getDefaultDisplay().getRotation();
         int orientation = ORIENTATIONS.get(rotation);
